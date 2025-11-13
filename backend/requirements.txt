@@ -1,0 +1,11 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.20
+opencv-python==4.10.0.84
+opencv-contrib-python==4.10.0.84
+numpy>=1.26.0
+Pillow>=11.0.0
+torch>=2.9.0
+torchvision>=0.21.0
+scipy>=1.14.0
+matplotlib>=3.9.0
