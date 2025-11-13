@@ -1,6 +1,13 @@
 # AI Image Stitching Web App
 
-딥러닝 기반 이미지 스티칭 웹 애플리케이션입니다. SuperGlue Transformer 모델을 활용하여 여러 이미지를 자동으로 파노라마로 합성합니다.
+딥러닝 기반 이미지 스티칭 웹 애플리케이션입니다. **LoFTR (Local Feature Transformer)** 모델을 활용하여 여러 이미지를 자동으로 파노라마로 합성합니다.
+
+## 🤖 AI 모델
+
+- **LoFTR (Local Feature TRansformer)**: Transformer 기반의 최신 feature matching 모델
+- 전통적인 SIFT보다 **더 정확하고 강건한** 이미지 매칭
+- 딥러닝 기반으로 복잡한 변환과 조명 변화에도 우수한 성능
+- GPU 가속 지원 (CUDA 사용 가능 시 자동으로 GPU 사용)
 
 ## 기술 스택
 
@@ -13,9 +20,10 @@
 ### Backend
 - Python 3.9+
 - FastAPI
-- PyTorch
+- PyTorch (딥러닝 프레임워크)
+- Kornia (Computer Vision 라이브러리)
 - OpenCV
-- SuperGlue (Transformer 기반 feature matching)
+- LoFTR (Transformer 기반 feature matching)
 
 ## 주요 기능
 
@@ -27,17 +35,49 @@
 
 ## 설치 및 실행
 
-### Backend 설정
+### 빠른 시작 (macOS)
+
+**1. 자동 설치**
+```bash
+./setup.sh
+```
+
+**2. 백엔드 실행 (터미널 1)**
+```bash
+./run-backend.sh
+# 또는 수동으로:
+# cd backend
+# source venv/bin/activate
+# uvicorn app.main:app --reload --port 8000
+```
+
+**3. 프론트엔드 실행 (터미널 2)**
+```bash
+./run-frontend.sh
+# 또는 수동으로:
+# cd frontend
+# npm run dev
+```
+
+**4. 브라우저에서 열기**
+```
+http://localhost:5173
+```
+
+### 수동 설치
+
+#### Backend 설정
 
 ```bash
 cd backend
-python -m venv venv
-source venv/bin/activate  # macOS
+python3 -m venv venv
+source venv/bin/activate  # macOS/Linux
+# Windows: venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-### Frontend 설정
+#### Frontend 설정
 
 ```bash
 cd frontend
@@ -68,9 +108,17 @@ ai-image-stitching-webapp/
 
 1. 웹 브라우저에서 `http://localhost:5173` 접속
 2. 여러 이미지를 드래그 앤 드롭 또는 선택하여 업로드
-3. "Stitch Images" 버튼 클릭
-4. AI가 자동으로 이미지를 분석하고 파노라마 생성
+3. "이미지 합성하기" 버튼 클릭
+4. **AI Transformer 모델**이 자동으로 이미지를 분석하고 파노라마 생성
+   - 첫 실행 시 LoFTR 모델을 다운로드합니다 (인터넷 연결 필요)
+   - GPU가 있으면 자동으로 CUDA 가속을 사용합니다
 5. 결과 이미지 다운로드
+
+### 팁
+- 겹치는 부분이 30% 이상인 이미지를 사용하세요
+- 이미지는 왼쪽에서 오른쪽 순서로 업로드하세요
+- 조명이나 각도가 크게 다른 이미지도 AI가 잘 처리합니다
+- GPU가 없어도 CPU에서 동작합니다 (다소 느릴 수 있음)
 
 ## 라이선스
 
