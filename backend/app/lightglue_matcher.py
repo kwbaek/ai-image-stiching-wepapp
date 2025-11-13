@@ -44,12 +44,14 @@ class LightGlueMatcher:
 
         logger.info(f"Using device: {self.device}")
 
-        # CPU에서는 LoFTR가 너무 느리므로 SIFT 사용
+        # SIFT를 항상 초기화 (fallback용)
+        self.sift = cv2.SIFT_create()
+        logger.info("SIFT feature detector initialized as fallback")
+
+        # CPU에서는 LoFTR가 너무 느리므로 SIFT만 사용
         if self.device.type == 'cpu':
             logger.info("CPU detected - using SIFT for faster processing")
             self.use_deep_learning = False
-            self.sift = cv2.SIFT_create()
-            logger.info("SIFT feature detector initialized")
             return
 
         # GPU (CUDA 또는 MPS)에서 LoFTR 모델 로드 (Transformer 기반)
@@ -64,10 +66,8 @@ class LightGlueMatcher:
             except Exception as e:
                 logger.warning(f"Failed to load LoFTR on {self.device}: {e}. Using SIFT fallback.")
                 self.use_deep_learning = False
-                self.sift = cv2.SIFT_create()
         else:
             self.use_deep_learning = False
-            self.sift = cv2.SIFT_create()
             logger.info("Using SIFT as fallback feature detector")
 
     def match_images(
@@ -103,7 +103,32 @@ class LightGlueMatcher:
         """
         LoFTR Transformer 모델을 사용한 매칭
         """
+        # 원본 이미지 백업 (SIFT fallback용)
+        orig_img1 = img1
+        orig_img2 = img2
+
         try:
+            # 메모리 절약을 위해 이미지 크기 조정
+            h1, w1 = img1.shape[:2]
+            h2, w2 = img2.shape[:2]
+            max_dim = 840  # LoFTR에서 권장하는 크기 (840x840)
+
+            scale1 = 1.0
+            if max(h1, w1) > max_dim:
+                scale1 = max_dim / max(h1, w1)
+                new_w1 = int(w1 * scale1)
+                new_h1 = int(h1 * scale1)
+                img1 = cv2.resize(img1, (new_w1, new_h1), interpolation=cv2.INTER_AREA)
+                logger.info(f"Resized image1 for LoFTR: {w1}x{h1} -> {new_w1}x{new_h1}")
+
+            scale2 = 1.0
+            if max(h2, w2) > max_dim:
+                scale2 = max_dim / max(h2, w2)
+                new_w2 = int(w2 * scale2)
+                new_h2 = int(h2 * scale2)
+                img2 = cv2.resize(img2, (new_w2, new_h2), interpolation=cv2.INTER_AREA)
+                logger.info(f"Resized image2 for LoFTR: {w2}x{h2} -> {new_w2}x{new_h2}")
+
             # 이미지를 grayscale로 변환
             if len(img1.shape) == 3:
                 gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
@@ -114,6 +139,11 @@ class LightGlueMatcher:
                 gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
             else:
                 gray2 = img2
+
+            # MPS 메모리 정리
+            if self.device.type == 'mps':
+                torch.mps.empty_cache()
+                logger.info("Cleared MPS cache before processing")
 
             # 이미지를 텐서로 변환 [1, 1, H, W]
             tensor1 = torch.from_numpy(gray1).float()[None, None] / 255.0
@@ -135,6 +165,19 @@ class LightGlueMatcher:
             mkpts1 = correspondences['keypoints1'].cpu().numpy()
             confidence = correspondences['confidence'].cpu().numpy()
 
+            # 텐서 메모리 해제
+            del tensor1, tensor2, correspondences
+            if self.device.type == 'mps':
+                torch.mps.empty_cache()
+            elif self.device.type == 'cuda':
+                torch.cuda.empty_cache()
+
+            # 스케일 조정을 역으로 적용
+            if scale1 != 1.0:
+                mkpts0 = mkpts0 / scale1
+            if scale2 != 1.0:
+                mkpts1 = mkpts1 / scale2
+
             # 신뢰도 필터링
             mask = confidence > confidence_threshold
             mkpts0 = mkpts0[mask]
@@ -155,8 +198,14 @@ class LightGlueMatcher:
 
         except Exception as e:
             logger.error(f"LoFTR matching failed: {e}")
-            # Fallback to SIFT
-            return self._match_with_sift(img1, img2)
+            # 메모리 정리
+            if self.device.type == 'mps':
+                torch.mps.empty_cache()
+            elif self.device.type == 'cuda':
+                torch.cuda.empty_cache()
+            # Fallback to SIFT with original images
+            logger.info("Falling back to SIFT matcher...")
+            return self._match_with_sift(orig_img1, orig_img2)
 
     def _match_with_sift(
         self,
