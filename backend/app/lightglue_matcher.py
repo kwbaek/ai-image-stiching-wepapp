@@ -29,25 +29,40 @@ class LightGlueMatcher:
     def __init__(self, device: str = None):
         """
         Args:
-            device: 'cuda' 또는 'cpu'. None이면 자동 선택
+            device: 'cuda', 'mps', 또는 'cpu'. None이면 자동 선택
         """
         if device is None:
-            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            # Apple Silicon MPS (Metal Performance Shaders) 지원
+            if torch.backends.mps.is_available():
+                self.device = torch.device('mps')
+            elif torch.cuda.is_available():
+                self.device = torch.device('cuda')
+            else:
+                self.device = torch.device('cpu')
         else:
             self.device = torch.device(device)
 
         logger.info(f"Using device: {self.device}")
 
-        # LoFTR 모델 로드 (Transformer 기반)
+        # CPU에서는 LoFTR가 너무 느리므로 SIFT 사용
+        if self.device.type == 'cpu':
+            logger.info("CPU detected - using SIFT for faster processing")
+            self.use_deep_learning = False
+            self.sift = cv2.SIFT_create()
+            logger.info("SIFT feature detector initialized")
+            return
+
+        # GPU (CUDA 또는 MPS)에서 LoFTR 모델 로드 (Transformer 기반)
         if KORNIA_AVAILABLE:
             try:
+                logger.info("Loading LoFTR Transformer model...")
                 self.matcher = LoFTR(pretrained='outdoor')
                 self.matcher = self.matcher.to(self.device)
                 self.matcher.eval()
                 self.use_deep_learning = True
-                logger.info("LoFTR Transformer model loaded successfully!")
+                logger.info(f"LoFTR Transformer model loaded successfully on {self.device}!")
             except Exception as e:
-                logger.warning(f"Failed to load LoFTR: {e}. Using SIFT fallback.")
+                logger.warning(f"Failed to load LoFTR on {self.device}: {e}. Using SIFT fallback.")
                 self.use_deep_learning = False
                 self.sift = cv2.SIFT_create()
         else:
@@ -152,6 +167,8 @@ class LightGlueMatcher:
         SIFT를 사용한 전통적인 매칭 (Fallback)
         """
         try:
+            logger.info("Starting SIFT feature detection...")
+
             # Grayscale 변환
             if len(img1.shape) == 3:
                 gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
@@ -164,18 +181,26 @@ class LightGlueMatcher:
                 gray2 = img2
 
             # SIFT 특징점 검출
+            logger.info("Detecting keypoints in image 1...")
             kp1, des1 = self.sift.detectAndCompute(gray1, None)
+            logger.info(f"Found {len(kp1)} keypoints in image 1")
+
+            logger.info("Detecting keypoints in image 2...")
             kp2, des2 = self.sift.detectAndCompute(gray2, None)
+            logger.info(f"Found {len(kp2)} keypoints in image 2")
 
             if des1 is None or des2 is None or len(des1) < 2 or len(des2) < 2:
                 logger.error("Not enough keypoints detected")
                 return None, None, 0
 
             # BFMatcher로 매칭
+            logger.info("Matching features with BFMatcher...")
             bf = cv2.BFMatcher()
             matches = bf.knnMatch(des1, des2, k=2)
+            logger.info(f"Found {len(matches)} initial matches")
 
             # Lowe's ratio test
+            logger.info("Applying Lowe's ratio test to filter matches...")
             good_matches = []
             for m, n in matches:
                 if m.distance < 0.75 * n.distance:

@@ -84,28 +84,33 @@ class ImageStitcher:
 
     def _stitch_pair(self, img1: np.ndarray, img2: np.ndarray) -> Optional[np.ndarray]:
         """
-        두 이미지를 Transformer 기반 매칭으로 스티칭
+        두 이미지를 매칭으로 스티칭
         """
         try:
-            logger.info("Using Transformer-based matching for image pair...")
+            logger.info("Starting image pair stitching...")
+            logger.info(f"Image 1 shape: {img1.shape}, Image 2 shape: {img2.shape}")
 
-            # Transformer 기반 매칭
+            # 특징점 매칭
             src_pts, dst_pts, num_matches = self.matcher.match_images(img1, img2)
 
             if src_pts is None or dst_pts is None or num_matches < 4:
                 logger.error(f"충분한 매칭 포인트를 찾을 수 없습니다. (Found: {num_matches})")
                 return None
 
-            logger.info(f"Found {num_matches} matching points using Transformer model")
+            logger.info(f"Found {num_matches} matching points")
 
             # 호모그래피 계산
+            logger.info("Computing homography matrix...")
             H = self.matcher.estimate_homography(src_pts, dst_pts)
 
             if H is None:
                 logger.error("호모그래피 행렬을 계산할 수 없습니다.")
                 return None
 
+            logger.info("Homography computed successfully")
+
             # 결과 이미지 크기 계산
+            logger.info("Computing output canvas size...")
             h1, w1 = img1.shape[:2]
             h2, w2 = img2.shape[:2]
 
@@ -124,15 +129,19 @@ class ImageStitcher:
 
             # 이미지 워핑 및 블렌딩
             output_size = (x_max - x_min, y_max - y_min)
+            logger.info(f"Output canvas size: {output_size}")
 
             # img2를 변환
+            logger.info("Warping second image...")
             warped_img2 = cv2.warpPerspective(img2, translation @ H, output_size)
 
             # img1을 캔버스에 배치
+            logger.info("Placing first image on canvas...")
             result = np.zeros((y_max - y_min, x_max - x_min, 3), dtype=np.uint8)
             result[-y_min:-y_min + h1, -x_min:-x_min + w1] = img1
 
             # 겹치는 영역 찾기 및 블렌딩
+            logger.info("Blending overlapping regions...")
             # warped_img2가 0이 아닌 영역을 찾기
             mask2 = (warped_img2.sum(axis=2) > 0).astype(np.uint8)
             mask1 = (result.sum(axis=2) > 0).astype(np.uint8)
@@ -147,6 +156,7 @@ class ImageStitcher:
                 result[overlap_bool] = (result[overlap_bool].astype(np.float32) * 0.5 +
                                        warped_img2[overlap_bool].astype(np.float32) * 0.5).astype(np.uint8)
 
+            logger.info("Image stitching completed successfully!")
             return result
 
         except Exception as e:
