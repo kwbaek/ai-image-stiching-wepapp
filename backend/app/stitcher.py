@@ -34,36 +34,27 @@ class ImageStitcher:
             return None
 
         try:
-            # OpenCV Stitcher 사용 (고급 기능)
-            stitcher = cv2.Stitcher_create(cv2.Stitcher_PANORAMA)
-
             # 이미지 전처리: 크기 조정
             processed_images = []
             for img in images:
                 # 너무 큰 이미지는 처리 속도를 위해 리사이즈
                 height, width = img.shape[:2]
-                max_dimension = 1000
+                max_dimension = 2000  # 더 큰 크기로 유지하여 품질 개선
 
                 if max(height, width) > max_dimension:
                     scale = max_dimension / max(height, width)
                     new_width = int(width * scale)
                     new_height = int(height * scale)
-                    img = cv2.resize(img, (new_width, new_height))
+                    img = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_AREA)
+                    logger.info(f"이미지 리사이즈: {width}x{height} -> {new_width}x{new_height}")
 
                 processed_images.append(img)
 
             logger.info(f"{len(processed_images)}개의 이미지를 스티칭 중...")
 
-            # 스티칭 수행
-            status, panorama = stitcher.stitch(processed_images)
-
-            if status == cv2.Stitcher_OK:
-                logger.info("스티칭 성공!")
-                return panorama
-            else:
-                logger.error(f"스티칭 실패. 상태 코드: {status}")
-                # Fallback: 기본 방식으로 시도
-                return self._stitch_basic(processed_images)
+            # Transformer 기반 매칭을 사용한 스티칭 (더 정확함)
+            logger.info("Using Transformer-based stitching for better quality...")
+            return self._stitch_basic(processed_images)
 
         except Exception as e:
             logger.error(f"스티칭 중 오류 발생: {str(e)}")
@@ -131,9 +122,30 @@ class ImageStitcher:
 
             translation = np.array([[1, 0, -x_min], [0, 1, -y_min], [0, 0, 1]])
 
-            # 이미지 워핑
-            result = cv2.warpPerspective(img2, translation @ H, (x_max - x_min, y_max - y_min))
+            # 이미지 워핑 및 블렌딩
+            output_size = (x_max - x_min, y_max - y_min)
+
+            # img2를 변환
+            warped_img2 = cv2.warpPerspective(img2, translation @ H, output_size)
+
+            # img1을 캔버스에 배치
+            result = np.zeros((y_max - y_min, x_max - x_min, 3), dtype=np.uint8)
             result[-y_min:-y_min + h1, -x_min:-x_min + w1] = img1
+
+            # 겹치는 영역 찾기 및 블렌딩
+            # warped_img2가 0이 아닌 영역을 찾기
+            mask2 = (warped_img2.sum(axis=2) > 0).astype(np.uint8)
+            mask1 = (result.sum(axis=2) > 0).astype(np.uint8)
+            overlap = mask1 & mask2
+
+            # 겹치지 않는 부분은 그대로 복사
+            result[mask2 == 1] = warped_img2[mask2 == 1]
+
+            # 겹치는 부분은 평균으로 블렌딩
+            overlap_bool = overlap == 1
+            if overlap_bool.any():
+                result[overlap_bool] = (result[overlap_bool].astype(np.float32) * 0.5 +
+                                       warped_img2[overlap_bool].astype(np.float32) * 0.5).astype(np.uint8)
 
             return result
 

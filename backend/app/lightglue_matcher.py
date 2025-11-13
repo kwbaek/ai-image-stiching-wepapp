@@ -59,7 +59,7 @@ class LightGlueMatcher:
         self,
         img1: np.ndarray,
         img2: np.ndarray,
-        confidence_threshold: float = 0.2
+        confidence_threshold: float = 0.7
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], int]:
         """
         두 이미지 간의 매칭 포인트 찾기
@@ -67,7 +67,7 @@ class LightGlueMatcher:
         Args:
             img1: 첫 번째 이미지 (numpy array)
             img2: 두 번째 이미지 (numpy array)
-            confidence_threshold: 매칭 신뢰도 임계값 (0-1)
+            confidence_threshold: 매칭 신뢰도 임계값 (0-1, 기본값 0.7로 고품질 매칭만 선택)
 
         Returns:
             src_pts: 첫 번째 이미지의 매칭 포인트
@@ -202,7 +202,7 @@ class LightGlueMatcher:
         self,
         src_pts: np.ndarray,
         dst_pts: np.ndarray,
-        ransac_threshold: float = 5.0
+        ransac_threshold: float = 3.0
     ) -> Optional[np.ndarray]:
         """
         RANSAC를 사용하여 호모그래피 행렬 추정
@@ -210,7 +210,7 @@ class LightGlueMatcher:
         Args:
             src_pts: 소스 이미지 포인트
             dst_pts: 목적지 이미지 포인트
-            ransac_threshold: RANSAC 임계값
+            ransac_threshold: RANSAC 임계값 (픽셀 단위, 기본값 3.0)
 
         Returns:
             호모그래피 행렬 (3x3) 또는 None
@@ -231,8 +231,8 @@ class LightGlueMatcher:
             inlier_ratio = np.sum(mask) / len(mask)
             logger.info(f"Homography inlier ratio: {inlier_ratio:.2%}")
 
-            if inlier_ratio < 0.1:
-                logger.warning("Low inlier ratio, homography may be unreliable")
+            if inlier_ratio < 0.3:
+                logger.warning(f"Low inlier ratio ({inlier_ratio:.2%}), result may be unreliable. Consider using images with more overlap.")
 
             return H
 
