@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 from typing import List, Tuple, Optional
 import logging
+from .lightglue_matcher import LightGlueMatcher
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -9,12 +10,14 @@ logger = logging.getLogger(__name__)
 
 class ImageStitcher:
     """
-    OpenCV 기반 이미지 스티칭 클래스
-    SIFT 특징점 검출 및 매칭을 사용하여 이미지를 파노라마로 결합
+    Transformer 기반 딥러닝 이미지 스티칭 클래스
+    LoFTR (Local Feature Transformer)를 사용하여 이미지를 파노라마로 결합
     """
 
     def __init__(self):
-        self.detector = cv2.SIFT_create()
+        # Transformer 기반 매처 초기화
+        self.matcher = LightGlueMatcher()
+        logger.info("ImageStitcher initialized with Transformer-based matcher")
 
     def stitch_images(self, images: List[np.ndarray]) -> Optional[np.ndarray]:
         """
@@ -90,36 +93,22 @@ class ImageStitcher:
 
     def _stitch_pair(self, img1: np.ndarray, img2: np.ndarray) -> Optional[np.ndarray]:
         """
-        두 이미지를 스티칭
+        두 이미지를 Transformer 기반 매칭으로 스티칭
         """
         try:
-            # SIFT 특징점 검출
-            kp1, des1 = self.detector.detectAndCompute(img1, None)
-            kp2, des2 = self.detector.detectAndCompute(img2, None)
+            logger.info("Using Transformer-based matching for image pair...")
 
-            if des1 is None or des2 is None:
-                logger.error("특징점을 찾을 수 없습니다.")
+            # Transformer 기반 매칭
+            src_pts, dst_pts, num_matches = self.matcher.match_images(img1, img2)
+
+            if src_pts is None or dst_pts is None or num_matches < 4:
+                logger.error(f"충분한 매칭 포인트를 찾을 수 없습니다. (Found: {num_matches})")
                 return None
 
-            # BFMatcher로 특징점 매칭
-            bf = cv2.BFMatcher()
-            matches = bf.knnMatch(des1, des2, k=2)
-
-            # Lowe's ratio test로 좋은 매칭만 선택
-            good_matches = []
-            for m, n in matches:
-                if m.distance < 0.75 * n.distance:
-                    good_matches.append(m)
-
-            if len(good_matches) < 10:
-                logger.error("충분한 매칭 포인트를 찾을 수 없습니다.")
-                return None
+            logger.info(f"Found {num_matches} matching points using Transformer model")
 
             # 호모그래피 계산
-            src_pts = np.float32([kp1[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-            dst_pts = np.float32([kp2[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-
-            H, mask = cv2.findHomography(dst_pts, src_pts, cv2.RANSAC, 5.0)
+            H = self.matcher.estimate_homography(src_pts, dst_pts)
 
             if H is None:
                 logger.error("호모그래피 행렬을 계산할 수 없습니다.")

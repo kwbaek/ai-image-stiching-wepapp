@@ -52,13 +52,16 @@ function App() {
       <div className="max-w-6xl mx-auto">
         <div className="text-center mb-12">
           <h1 className="text-5xl font-bold text-gray-800 mb-4">
-            AI 이미지 스티칭
+            🤖 AI 이미지 스티칭
           </h1>
           <p className="text-xl text-gray-600">
             딥러닝 기반 자동 파노라마 생성
           </p>
           <p className="text-sm text-gray-500 mt-2">
-            SuperGlue Transformer 모델 사용
+            LoFTR Transformer 모델 사용
+          </p>
+          <p className="text-xs text-gray-400 mt-1">
+            Powered by Local Feature Transformer
           </p>
         </div>
 
