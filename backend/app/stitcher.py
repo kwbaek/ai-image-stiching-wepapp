@@ -15,10 +15,65 @@ class ImageStitcher:
     LoFTR (Local Feature Transformer)를 사용하여 이미지를 파노라마로 결합
     """
 
-    def __init__(self):
+    def __init__(self, use_cylindrical=True):
         # Transformer 기반 매처 초기화
         self.matcher = LightGlueMatcher()
-        logger.info("ImageStitcher initialized with Transformer-based matcher")
+        self.use_cylindrical = use_cylindrical
+        logger.info(f"ImageStitcher initialized with Transformer-based matcher (cylindrical={use_cylindrical})")
+
+    def _cylindrical_warp(self, img: np.ndarray, focal_length: Optional[float] = None) -> np.ndarray:
+        """
+        이미지를 원통형(cylindrical) 표면에 투영하여 평면 파노라마 생성 준비
+
+        Args:
+            img: 입력 이미지
+            focal_length: 카메라 초점 거리 (None이면 이미지 너비로 자동 계산)
+
+        Returns:
+            원통형 투영된 이미지
+        """
+        h, w = img.shape[:2]
+
+        # focal length 자동 계산 (이미지 너비 사용)
+        if focal_length is None:
+            focal_length = w
+
+        # 카메라 내부 파라미터 행렬
+        K = np.array([
+            [focal_length, 0, w / 2],
+            [0, focal_length, h / 2],
+            [0, 0, 1]
+        ])
+
+        # 역행렬
+        K_inv = np.linalg.inv(K)
+
+        # 출력 이미지 좌표 생성
+        y_i, x_i = np.indices((h, w))
+
+        # 원통형 좌표로 변환
+        # 1. 이미지 좌표를 정규화된 좌표로 변환
+        X = np.stack([x_i.ravel(), y_i.ravel(), np.ones_like(x_i.ravel())], axis=0)
+        X_norm = K_inv @ X
+
+        x_norm = X_norm[0]
+        y_norm = X_norm[1]
+
+        # 2. 원통형 좌표 계산
+        theta = np.arctan2(x_norm, 1)  # 수평 각도
+        h_cyl = y_norm / np.sqrt(x_norm ** 2 + 1)  # 수직 위치
+
+        # 3. 원통형 좌표를 이미지 좌표로 재변환
+        x_cyl = focal_length * theta + w / 2
+        y_cyl = focal_length * h_cyl + h / 2
+
+        # 4. 리매핑으로 원통형 투영 적용
+        map_x = x_cyl.reshape(h, w).astype(np.float32)
+        map_y = y_cyl.reshape(h, w).astype(np.float32)
+
+        warped = cv2.remap(img, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+
+        return warped
 
     def stitch_images(self, images: List[np.ndarray]) -> Optional[np.ndarray]:
         """
@@ -35,9 +90,9 @@ class ImageStitcher:
             return None
 
         try:
-            # 이미지 전처리: 크기 조정
+            # 이미지 전처리: 크기 조정 및 원통형 투영
             processed_images = []
-            for img in images:
+            for i, img in enumerate(images):
                 # 너무 큰 이미지는 처리 속도를 위해 리사이즈
                 height, width = img.shape[:2]
                 max_dimension = 2000  # 더 큰 크기로 유지하여 품질 개선
@@ -47,7 +102,12 @@ class ImageStitcher:
                     new_width = int(width * scale)
                     new_height = int(height * scale)
                     img = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_AREA)
-                    logger.info(f"이미지 리사이즈: {width}x{height} -> {new_width}x{new_height}")
+                    logger.info(f"이미지 {i} 리사이즈: {width}x{height} -> {new_width}x{new_height}")
+
+                # 원통형 투영 적용 (평면 파노라마를 위해)
+                if self.use_cylindrical:
+                    logger.info(f"이미지 {i}에 cylindrical warping 적용 중...")
+                    img = self._cylindrical_warp(img)
 
                 processed_images.append(img)
 
