@@ -15,11 +15,11 @@ class ImageStitcher:
     LoFTR (Local Feature Transformer)를 사용하여 이미지를 파노라마로 결합
     """
 
-    def __init__(self, use_cylindrical=True):
+    def __init__(self, use_affine=True):
         # Transformer 기반 매처 초기화
         self.matcher = LightGlueMatcher()
-        self.use_cylindrical = use_cylindrical
-        logger.info(f"ImageStitcher initialized with Transformer-based matcher (cylindrical={use_cylindrical})")
+        self.use_affine = use_affine
+        logger.info(f"ImageStitcher initialized with Transformer-based matcher (affine={use_affine}, planar_mode={use_affine})")
 
     def _cylindrical_warp(self, img: np.ndarray, focal_length: Optional[float] = None) -> np.ndarray:
         """
@@ -90,7 +90,7 @@ class ImageStitcher:
             return None
 
         try:
-            # 이미지 전처리: 크기 조정 및 원통형 투영
+            # 이미지 전처리: 크기 조정
             processed_images = []
             for i, img in enumerate(images):
                 # 너무 큰 이미지는 처리 속도를 위해 리사이즈
@@ -104,14 +104,9 @@ class ImageStitcher:
                     img = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_AREA)
                     logger.info(f"이미지 {i} 리사이즈: {width}x{height} -> {new_width}x{new_height}")
 
-                # 원통형 투영 적용 (평면 파노라마를 위해)
-                if self.use_cylindrical:
-                    logger.info(f"이미지 {i}에 cylindrical warping 적용 중...")
-                    img = self._cylindrical_warp(img)
-
                 processed_images.append(img)
 
-            logger.info(f"{len(processed_images)}개의 이미지를 스티칭 중...")
+            logger.info(f"{len(processed_images)}개의 이미지를 스티칭 중... (planar_mode={'ON' if self.use_affine else 'OFF'})")
 
             # 자동 배치 인식을 사용한 스티칭
             logger.info("Using auto-layout detection for multi-directional stitching...")
@@ -160,15 +155,21 @@ class ImageStitcher:
 
             logger.info(f"Found {num_matches} matching points")
 
-            # 호모그래피 계산
-            logger.info("Computing homography matrix...")
-            H = self.matcher.estimate_homography(src_pts, dst_pts)
+            # 변환 행렬 계산 (Affine 또는 Homography)
+            if self.use_affine:
+                logger.info("Computing affine transformation matrix (planar mode)...")
+                H = self.matcher.estimate_affine(src_pts, dst_pts)
+                transform_type = "Affine"
+            else:
+                logger.info("Computing homography matrix...")
+                H = self.matcher.estimate_homography(src_pts, dst_pts)
+                transform_type = "Homography"
 
             if H is None:
-                logger.error("호모그래피 행렬을 계산할 수 없습니다.")
+                logger.error(f"{transform_type} 행렬을 계산할 수 없습니다.")
                 return None
 
-            logger.info("Homography computed successfully")
+            logger.info(f"{transform_type} computed successfully")
 
             # 결과 이미지 크기 계산
             logger.info("Computing output canvas size...")
@@ -226,13 +227,14 @@ class ImageStitcher:
 
     def _match_all_pairs(self, images: List[np.ndarray]) -> Dict[Tuple[int, int], Tuple[np.ndarray, np.ndarray, np.ndarray, int]]:
         """
-        모든 이미지 쌍에 대해 매칭을 수행하고 homography 계산
+        모든 이미지 쌍에 대해 매칭을 수행하고 변환 행렬 계산
 
         Args:
             images: 이미지 리스트
 
         Returns:
             딕셔너리 {(i, j): (src_pts, dst_pts, H, num_matches)}
+            H는 affine 또는 homography 변환 행렬 (3x3)
             i < j인 경우만 저장 (중복 방지)
         """
         n = len(images)
@@ -249,14 +251,19 @@ class ImageStitcher:
                     src_pts, dst_pts, num_matches = self.matcher.match_images(images[i], images[j])
 
                     if src_pts is not None and dst_pts is not None and num_matches >= 4:
-                        # Homography 계산
-                        H = self.matcher.estimate_homography(src_pts, dst_pts)
+                        # 변환 행렬 계산 (Affine 또는 Homography)
+                        if self.use_affine:
+                            H = self.matcher.estimate_affine(src_pts, dst_pts)
+                            transform_type = "affine"
+                        else:
+                            H = self.matcher.estimate_homography(src_pts, dst_pts)
+                            transform_type = "homography"
 
                         if H is not None:
                             matches[(i, j)] = (src_pts, dst_pts, H, num_matches)
-                            logger.info(f"Successfully matched {i}-{j}: {num_matches} points")
+                            logger.info(f"Successfully matched {i}-{j}: {num_matches} points ({transform_type})")
                         else:
-                            logger.warning(f"Failed to compute homography for {i}-{j}")
+                            logger.warning(f"Failed to compute {transform_type} for {i}-{j}")
                     else:
                         logger.warning(f"Insufficient matches for {i}-{j}: {num_matches}")
 
@@ -319,7 +326,7 @@ class ImageStitcher:
     def _calculate_layout(self, images: List[np.ndarray], matches: Dict[Tuple[int, int], Tuple],
                          graph: Dict[int, Set[int]], central_idx: int) -> Dict[int, np.ndarray]:
         """
-        중심 이미지를 기준으로 모든 이미지의 상대적 위치(homography) 계산
+        중심 이미지를 기준으로 모든 이미지의 상대적 위치 계산
 
         Args:
             images: 이미지 리스트
@@ -328,7 +335,8 @@ class ImageStitcher:
             central_idx: 중심 이미지 인덱스
 
         Returns:
-            {image_idx: cumulative_homography_matrix}
+            {image_idx: cumulative_transformation_matrix}
+            변환 행렬은 affine 또는 homography (3x3)
             중심 이미지는 Identity matrix
         """
         n = len(images)

@@ -272,6 +272,62 @@ class LightGlueMatcher:
             logger.error(f"SIFT matching failed: {e}")
             return None, None, 0
 
+    def estimate_affine(
+        self,
+        src_pts: np.ndarray,
+        dst_pts: np.ndarray,
+        ransac_threshold: float = 3.0
+    ) -> Optional[np.ndarray]:
+        """
+        RANSAC를 사용하여 어파인 변환 행렬 추정 (평면 스티칭용)
+
+        Args:
+            src_pts: 소스 이미지 포인트
+            dst_pts: 목적지 이미지 포인트
+            ransac_threshold: RANSAC 임계값 (픽셀 단위, 기본값 3.0)
+
+        Returns:
+            어파인 행렬 (2x3) 또는 None
+        """
+        try:
+            # Affine transformation 추정 (6 DOF: 회전, 이동, 스케일, 전단)
+            # 원근 왜곡 없이 평면으로 스티칭
+            M, mask = cv2.estimateAffinePartial2D(
+                dst_pts,
+                src_pts,
+                method=cv2.RANSAC,
+                ransacReprojThreshold=ransac_threshold
+            )
+
+            if M is None:
+                logger.warning("Affine estimation failed, trying full affine...")
+                # Partial2D가 실패하면 full affine 시도
+                M, mask = cv2.estimateAffine2D(
+                    dst_pts,
+                    src_pts,
+                    method=cv2.RANSAC,
+                    ransacReprojThreshold=ransac_threshold
+                )
+
+            if M is None:
+                logger.error("Failed to compute affine transformation")
+                return None
+
+            # Inlier 비율 체크
+            inlier_ratio = np.sum(mask) / len(mask)
+            logger.info(f"Affine inlier ratio: {inlier_ratio:.2%}")
+
+            if inlier_ratio < 0.3:
+                logger.warning(f"Low inlier ratio ({inlier_ratio:.2%}), result may be unreliable.")
+
+            # 2x3 행렬을 3x3 homogeneous 형태로 변환 (호환성 위해)
+            M_3x3 = np.vstack([M, [0, 0, 1]])
+            return M_3x3
+
+        except Exception as e:
+            logger.error(f"Affine estimation failed: {e}")
+            return None
+
     def estimate_homography(
         self,
         src_pts: np.ndarray,
