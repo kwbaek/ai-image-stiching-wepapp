@@ -15,7 +15,7 @@ class ImageStitcher:
     LoFTR (Local Feature Transformer)를 사용하여 이미지를 파노라마로 결합
     """
 
-    def __init__(self, use_cylindrical=True):
+    def __init__(self, use_cylindrical=False):
         # Transformer 기반 매처 초기화
         self.matcher = LightGlueMatcher()
         self.use_cylindrical = use_cylindrical
