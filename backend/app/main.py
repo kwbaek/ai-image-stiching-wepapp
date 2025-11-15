@@ -34,8 +34,8 @@ RESULT_DIR = Path("results")
 UPLOAD_DIR.mkdir(exist_ok=True)
 RESULT_DIR.mkdir(exist_ok=True)
 
-# 이미지 스티처 초기화
-stitcher = ImageStitcher()
+# 이미지 스티처 초기화 (평면 파노라마를 위해 cylindrical warping 비활성화)
+stitcher = ImageStitcher(use_cylindrical=False)
 
 
 @app.get("/")
