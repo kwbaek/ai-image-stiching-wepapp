@@ -9,6 +9,7 @@ import logging
 from pathlib import Path
 import shutil
 from .stitcher import ImageStitcher
+from .svg_stitcher import SVGStitcher
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -36,6 +37,9 @@ RESULT_DIR.mkdir(exist_ok=True)
 
 # 이미지 스티처 초기화 (평면 파노라마를 위해 cylindrical warping 비활성화)
 stitcher = ImageStitcher(use_cylindrical=False)
+
+# SVG 스티처 초기화 (고해상도 매칭을 위해 DPI=300)
+svg_stitcher = SVGStitcher(raster_dpi=300)
 
 
 @app.get("/")
@@ -137,6 +141,91 @@ async def stitch_images(images: List[UploadFile] = File(...)):
         raise
     except Exception as e:
         logger.error(f"스티칭 중 오류 발생: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"서버 오류: {str(e)}"
+        )
+
+
+@app.post("/stitch-svg")
+async def stitch_svg_files(svgs: List[UploadFile] = File(...)):
+    """
+    여러 SVG 파일을 받아 스티칭하여 통합 SVG 파노라마 생성
+
+    Args:
+        svgs: 업로드된 SVG 파일들 (최소 2개)
+
+    Returns:
+        JSON: success, result_svg (base64), message
+    """
+    if len(svgs) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="최소 2개 이상의 SVG 파일이 필요합니다."
+        )
+
+    if len(svgs) > 10:
+        raise HTTPException(
+            status_code=400,
+            detail="최대 10개까지의 SVG만 처리할 수 있습니다."
+        )
+
+    try:
+        logger.info(f"{len(svgs)}개의 SVG 파일 수신")
+
+        # SVG 파일 읽기 및 검증
+        svg_bytes_list = []
+        for idx, svg_file in enumerate(svgs):
+            # 파일 확장자 체크
+            if not (svg_file.content_type == "image/svg+xml" or
+                   svg_file.filename.endswith('.svg')):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"파일 {svg_file.filename}은 SVG가 아닙니다."
+                )
+
+            # SVG 읽기
+            contents = await svg_file.read()
+
+            if not contents:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"SVG 파일 {svg_file.filename}이 비어있습니다."
+                )
+
+            logger.info(f"SVG {idx + 1}: {svg_file.filename} - 크기: {len(contents)} bytes")
+            svg_bytes_list.append(contents)
+
+        # SVG 스티칭
+        logger.info("SVG 스티칭 시작...")
+        result_svg = svg_stitcher.stitch_svgs(svg_bytes_list)
+
+        if result_svg is None:
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": False,
+                    "message": "SVG 스티칭에 실패했습니다. SVG들이 겹치는 부분이 충분한지 확인해주세요.",
+                    "result_svg": None
+                }
+            )
+
+        # 결과 SVG를 Base64로 인코딩
+        result_base64 = base64.b64encode(result_svg).decode('utf-8')
+
+        logger.info(f"SVG 스티칭 완료! 결과 크기: {len(result_svg)} bytes")
+
+        return {
+            "success": True,
+            "result_svg": result_base64,
+            "message": "SVG 스티칭이 성공적으로 완료되었습니다.",
+            "result_size": len(result_svg)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"SVG 스티칭 중 오류 발생: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"서버 오류: {str(e)}"
