@@ -2,6 +2,8 @@
 
 딥러닝 기반 이미지 스티칭 웹 애플리케이션입니다. **LoFTR (Local Feature Transformer)** 모델을 활용하여 여러 이미지를 자동으로 파노라마로 합성합니다.
 
+**🆕 SVG 스티칭 지원!** IC SEM 이미지 등의 벡터 그래픽을 정밀하게 스티칭할 수 있습니다.
+
 ## 🤖 AI 모델
 
 - **LoFTR (Local Feature TRansformer)**: Transformer 기반의 최신 feature matching 모델
@@ -27,10 +29,13 @@
 
 ## 주요 기능
 
-- 🖼️ 다중 이미지 업로드
+- 🖼️ 다중 이미지 업로드 (PNG, JPEG 등)
+- 🎨 **SVG 벡터 그래픽 스티칭** (IC SEM 이미지 등)
 - 🤖 AI 기반 자동 이미지 매칭 및 정렬
 - 🔄 실시간 스티칭 진행 상황 표시
-- 📥 결과 이미지 다운로드
+- 📥 결과 이미지/SVG 다운로드
+- 🎯 10% overlap 영역 자동 인식
+- 🧩 정사각형 그리드 레이아웃 자동 배치
 - 🎨 인터랙티브 UI
 
 ## 설치 및 실행
@@ -128,6 +133,42 @@ ai-image-stitching-webapp/
 - **복잡한 레이아웃**: 2x5, 3x3 등 복잡한 그리드 배치도 자동 처리
 - **지능형 매칭**: 모든 이미지 쌍을 분석하여 최적의 연결 관계 파악
 - **중심 기반 확장**: 가장 많은 이미지와 연결된 중심 이미지부터 시작하여 안정적으로 확장
+
+### SVG 스티칭 기능 (NEW!)
+
+#### 특징
+- **벡터 정확도 유지**: SVG 벡터 정보를 완전히 보존하면서 스티칭
+- **하이브리드 접근**: SVG → 고해상도 PNG → Transformer 매칭 → SVG 변환 적용 → 통합 SVG
+- **IC SEM 이미지 최적화**: 10% overlap의 IC SEM 이미지에 최적화
+- **정사각형 파노라마**: 그리드 형태의 정사각형 레이아웃 자동 생성
+
+#### API 사용법
+
+**엔드포인트**: `POST /stitch-svg`
+
+```bash
+# SVG 파일 스티칭
+curl -X POST "http://localhost:8000/stitch-svg" \
+  -F "svgs=@image1.svg" \
+  -F "svgs=@image2.svg" \
+  -F "svgs=@image3.svg"
+```
+
+**응답 형식**:
+```json
+{
+  "success": true,
+  "result_svg": "PD94bWwgdmVyc2lvbj0iMS4wIj8+...",  // Base64 인코딩된 SVG
+  "message": "SVG 스티칭이 성공적으로 완료되었습니다.",
+  "result_size": 12345
+}
+```
+
+#### 권장사항
+- **겹침 영역**: 10% 이상의 overlap 영역이 있어야 합니다
+- **파일 수**: 2~10개의 SVG 파일 지원
+- **해상도**: 내부적으로 300 DPI로 래스터화하여 매칭 (결과는 벡터로 출력)
+- **용도**: IC layout extraction, SEM image reconstruction 등
 
 ## 라이선스
 

@@ -11,3 +11,7 @@ scipy>=1.14.0
 matplotlib>=3.9.0
 kornia>=0.7.0
 kornia-moons>=0.2.0
+cairosvg>=2.7.0
+svgpathtools>=1.6.0
+svgwrite>=1.4.3
+lxml>=5.0.0
